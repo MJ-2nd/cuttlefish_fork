@@ -8,7 +8,7 @@ import {
   Observable,
   Subscription,
 } from 'rxjs';
-import {map, debounceTime, scan} from 'rxjs/operators';
+import {map, debounceTime, scan, tap} from 'rxjs/operators';
 import {
   KtdGridComponent,
   KtdGridLayout,
@@ -96,6 +96,8 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
     // would report how much spacing is required in each direction.
     return cnt * this.displayMargin + iconPanelWidth;
   }
+
+  private currentLayout: DeviceGridItem[] = [];
 
   private readonly freeScale = 0;
 
@@ -295,7 +297,7 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
         layoutById.set(id, item);
     });
     return Array.from(layoutById, ([, value]) => value);
-  }, []), map(items => items.filter(item => item.visible)));
+  }, []), map(items => items.filter(item => item.visible)), tap(items => this.currentLayout = items));
 
   forceShowDevice(deviceId: string) {
     this.displaysService.onDeviceDisplayInfo({
@@ -314,6 +316,11 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
   private readonly visibleDeviceSource = 'visible_device';
   private readonly displayInfoSource = 'display_info';
   private readonly layoutUpdateSource = 'layout_update';
+
+  getOverlayId(deviceId: string): string | null {
+    if (this.currentLayout.length < 2) return null;
+    return deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
+  }
 
   private createDeviceGridItem(id: string): DeviceGridItem {
     return {

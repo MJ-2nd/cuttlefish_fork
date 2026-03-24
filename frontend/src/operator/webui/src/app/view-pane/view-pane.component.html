@@ -46,6 +46,14 @@
               [title]="display.id"
             ></iframe>
           </div>
+          @if (getOverlayId(display.id); as overlayId) {
+            <div class="composite-overlay">
+              <iframe
+                [src]="overlayId | safedeviceurl"
+                [title]="'overlay-' + overlayId"
+              ></iframe>
+            </div>
+          }
         </div>
       </ktd-grid-item>
     }

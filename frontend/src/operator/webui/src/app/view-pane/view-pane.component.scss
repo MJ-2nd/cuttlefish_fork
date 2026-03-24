@@ -11,6 +11,7 @@ ktd-grid {
     height: 100px;
 
     .device-viewer-display {
+      position: relative;
       display: flex;
       flex-direction: column;
       height: 98%;
@@ -62,7 +63,26 @@ ktd-grid {
           height: 100%;
           border: none;
         } // iframe
-      } // .fit-iframe
+      } // .fit-panel
+
+      .composite-overlay {
+        position: absolute;
+        top: 50px;
+        right: 10px;
+        width: 30%;
+        height: 30%;
+        z-index: 10;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+        iframe {
+          width: 100%;
+          height: 100%;
+          border: none;
+        }
+      } // .composite-overlay
     } // .device-viewer-display
   } // .device-viewer
 } // .view-pane

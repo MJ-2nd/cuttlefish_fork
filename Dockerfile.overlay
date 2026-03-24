@@ -1,0 +1,2 @@
+FROM cuttlefish-orchestration:latest
+COPY static/ /usr/share/cuttlefish-common/operator/static/
