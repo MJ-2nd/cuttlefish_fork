@@ -1,0 +1,45 @@
+# docker-compose.yml - Cuttlefish Orchestrator with NVIDIA GPU
+version: "3.8"
+
+services:
+  cuttlefish:
+    image: cuttlefish-orchestration:latest
+    # 또는 커스텀 이미지: build: .
+    privileged: true
+    runtime: nvidia          # nvidia-container-toolkit 필요
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - DISPLAY=${DISPLAY}
+    devices:
+      - /dev/kvm:/dev/kvm
+      - /dev/vhost-vsock:/dev/vhost-vsock
+      - /dev/dri:/dev/dri
+    volumes:
+      # 필수: 커널 모듈
+      - /lib/modules:/lib/modules:ro
+      # 필수: Vulkan ICD 설정 (graphics_detector가 GPU를 찾는 데 필요)
+      - /etc/vulkan:/etc/vulkan:ro
+      - /usr/share/vulkan:/usr/share/vulkan:ro
+      # X11 디스플레이 (EGL 감지용, headless면 생략 가능)
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # 안드로이드 이미지 디렉토리 (CVD 이미지 경로에 맞게 수정)
+      # - ./android-images:/root/android-images
+    ports:
+      # Operator (웹 UI)
+      - "1080:1080"     # HTTP
+      - "1443:1443"     # HTTPS
+      # Host Orchestrator API
+      - "2080:2080"     # HTTP
+      - "2443:2443"     # HTTPS
+      # WebRTC 시그널링 + 미디어
+      - "8443:8443"
+      - "15550-15560:15550-15560"
+      # ADB
+      - "6520-6620:6520-6620"
+    # tmpfs로 /tmp 사용 (성능 향상)
+    tmpfs:
+      - /tmp
+    shm_size: "4g"       # WebRTC 등 공유 메모리
+    security_opt:
+      - seccomp:unconfined
