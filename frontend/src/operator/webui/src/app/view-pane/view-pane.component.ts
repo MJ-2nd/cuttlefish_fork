@@ -319,7 +319,11 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
 
   getOverlayId(deviceId: string): string | null {
     if (this.currentLayout.length < 2) return null;
-    return deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
+    const overlayId = deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
+    if (overlayId) {
+      console.log('[PIP] Overlay active: overlaying', overlayId, 'on', deviceId, '(CENTER mode)');
+    }
+    return overlayId;
   }
 
   private createDeviceGridItem(id: string): DeviceGridItem {
