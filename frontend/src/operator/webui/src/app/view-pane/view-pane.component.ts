@@ -397,32 +397,41 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
     let lastH = 0;
 
     const render = () => {
+      // Match canvas internal resolution to its CSS display size
+      const displayRect = canvas.getBoundingClientRect();
+      const w = Math.round(displayRect.width);
+      const h = Math.round(displayRect.height);
+      if (lastW !== w || lastH !== h) {
+        lastW = w;
+        lastH = h;
+        canvas.width = w;
+        canvas.height = h;
+        console.log('[Composite] Canvas resized to display:', w, 'x', h);
+      }
+
+      // Clear entire canvas → transparent → iframe control panel shows through
+      ctx.clearRect(0, 0, lastW, lastH);
+
       if (mainVideo.videoWidth > 0 && mainVideo.videoHeight > 0) {
-        // Only resize canvas when video dimensions change (resizing clears canvas)
-        if (lastW !== mainVideo.videoWidth || lastH !== mainVideo.videoHeight) {
-          lastW = mainVideo.videoWidth;
-          lastH = mainVideo.videoHeight;
-          canvas.width = lastW;
-          canvas.height = lastH;
-          console.log('[Composite] Canvas resized:', lastW, 'x', lastH);
-        }
+        // Get video position within iframe (iframe-viewport-relative coords)
+        const vr = mainVideo.getBoundingClientRect();
 
-        // Background: first CVD full size
-        ctx.drawImage(mainVideo, 0, 0, lastW, lastH);
+        // Draw main video at the exact position it occupies in the iframe
+        ctx.drawImage(mainVideo, vr.left, vr.top, vr.width, vr.height);
 
-        // Foreground: second CVD at 30% size, centered
+        // Overlay: second CVD at 30% size, centered within the video area
         if (overlayVideo.videoWidth > 0 && overlayVideo.videoHeight > 0) {
           const scale = 0.3;
-          const overlayW = lastW * scale;
-          const overlayH = lastH * scale;
-          const overlayX = (lastW - overlayW) / 2;
-          const overlayY = (lastH - overlayH) / 2;
+          const oW = vr.width * scale;
+          const oH = vr.height * scale;
+          const oX = vr.left + (vr.width - oW) / 2;
+          const oY = vr.top + (vr.height - oH) / 2;
 
-          ctx.drawImage(overlayVideo, overlayX, overlayY, overlayW, overlayH);
+          ctx.drawImage(overlayVideo, oX, oY, oW, oH);
 
           ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
           ctx.lineWidth = 2;
-          ctx.strokeRect(overlayX, overlayY, overlayW, overlayH);
+          ctx.strokeRect(oX, oY, oW, oH);
         }
       }
 
