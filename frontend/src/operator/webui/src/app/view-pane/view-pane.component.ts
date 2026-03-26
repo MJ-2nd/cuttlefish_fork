@@ -347,11 +347,13 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
     const canvas = this.document.querySelector(
       `canvas[data-device-id="${deviceId}"]`
     ) as HTMLCanvasElement;
+    // CVD 1's own iframe (visible underneath the canvas, NOT hidden)
     const mainIframe = this.document.querySelector(
       `iframe[title="${deviceId}"]`
     ) as HTMLIFrameElement;
+    // CVD 2's existing grid item iframe (no duplicate — reuse its WebRTC connection)
     const overlayIframe = this.document.querySelector(
-      `iframe[title="composite-source-${overlayId}"]`
+      `iframe[title="${overlayId}"]`
     ) as HTMLIFrameElement;
 
     if (!canvas || !mainIframe || !overlayIframe) {
@@ -365,6 +367,12 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
         const mainVideo = mainIframe.contentDocument?.querySelector('video') as HTMLVideoElement;
         const overlayVideo = overlayIframe.contentDocument?.querySelector('video') as HTMLVideoElement;
 
+        console.log('[Composite] Polling...',
+          'mainIframe.contentDocument:', !!mainIframe.contentDocument,
+          'main video:', !!mainVideo, mainVideo?.videoWidth ?? 'N/A',
+          'overlayIframe.contentDocument:', !!overlayIframe.contentDocument,
+          'overlay video:', !!overlayVideo, overlayVideo?.videoWidth ?? 'N/A');
+
         if (mainVideo && overlayVideo && mainVideo.videoWidth > 0 && overlayVideo.videoWidth > 0) {
           clearInterval(this.compositeCheckInterval!);
           this.compositeCheckInterval = null;
@@ -372,15 +380,11 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
             `main: ${mainVideo.videoWidth}x${mainVideo.videoHeight}`,
             `overlay: ${overlayVideo.videoWidth}x${overlayVideo.videoHeight}`);
           this.runCompositeLoop(canvas, mainVideo, overlayVideo);
-        } else {
-          console.log('[Composite] Waiting for videos...',
-            'main:', !!mainVideo, mainVideo?.videoWidth,
-            'overlay:', !!overlayVideo, overlayVideo?.videoWidth);
         }
       } catch (e) {
         console.error('[Composite] Cannot access iframe content:', e);
       }
-    }, 500);
+    }, 1000);
   }
 
   private runCompositeLoop(
@@ -389,22 +393,30 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
     overlayVideo: HTMLVideoElement
   ): void {
     const ctx = canvas.getContext('2d')!;
+    let lastW = 0;
+    let lastH = 0;
 
     const render = () => {
       if (mainVideo.videoWidth > 0 && mainVideo.videoHeight > 0) {
-        canvas.width = mainVideo.videoWidth;
-        canvas.height = mainVideo.videoHeight;
+        // Only resize canvas when video dimensions change (resizing clears canvas)
+        if (lastW !== mainVideo.videoWidth || lastH !== mainVideo.videoHeight) {
+          lastW = mainVideo.videoWidth;
+          lastH = mainVideo.videoHeight;
+          canvas.width = lastW;
+          canvas.height = lastH;
+          console.log('[Composite] Canvas resized:', lastW, 'x', lastH);
+        }
 
         // Background: first CVD full size
-        ctx.drawImage(mainVideo, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(mainVideo, 0, 0, lastW, lastH);
 
         // Foreground: second CVD at 30% size, centered
         if (overlayVideo.videoWidth > 0 && overlayVideo.videoHeight > 0) {
           const scale = 0.3;
-          const overlayW = canvas.width * scale;
-          const overlayH = canvas.height * scale;
-          const overlayX = (canvas.width - overlayW) / 2;
-          const overlayY = (canvas.height - overlayH) / 2;
+          const overlayW = lastW * scale;
+          const overlayH = lastH * scale;
+          const overlayX = (lastW - overlayW) / 2;
+          const overlayY = (lastH - overlayH) / 2;
 
           ctx.drawImage(overlayVideo, overlayX, overlayY, overlayW, overlayH);
 

@@ -82,14 +82,6 @@ ktd-grid {
           background: #000;
         }
 
-        .composite-source-hidden {
-          position: absolute;
-          left: -9999px;
-          top: -9999px;
-          width: 360px;
-          height: 640px;
-          pointer-events: none;
-        }
       } // .composite-container
     } // .device-viewer-display
   } // .device-viewer
