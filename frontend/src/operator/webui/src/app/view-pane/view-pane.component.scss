@@ -81,6 +81,14 @@ ktd-grid {
           height: 100%;
         }
 
+        .overlay-touch-target {
+          position: absolute;
+          pointer-events: auto;
+          touch-action: none;
+          cursor: pointer;
+          z-index: 10;
+        }
+
       } // .composite-container
     } // .device-viewer-display
   } // .device-viewer

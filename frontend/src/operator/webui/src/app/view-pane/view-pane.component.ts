@@ -102,6 +102,8 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
   private compositeAnimationId: number | null = null;
   private compositeCheckInterval: ReturnType<typeof setInterval> | null = null;
   private compositeActive = false;
+  private compositeOverlayVideo: HTMLVideoElement | null = null;
+  private compositeOverlayIframe: HTMLIFrameElement | null = null;
 
   private readonly freeScale = 0;
 
@@ -379,6 +381,9 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
           console.log('[Composite] Both videos ready — starting render loop',
             `main: ${mainVideo.videoWidth}x${mainVideo.videoHeight}`,
             `overlay: ${overlayVideo.videoWidth}x${overlayVideo.videoHeight}`);
+          this.compositeOverlayVideo = overlayVideo;
+          this.compositeOverlayIframe = overlayIframe;
+          this.setupOverlayTouchHandling();
           this.runCompositeLoop(canvas, mainVideo, overlayVideo);
         }
       } catch (e) {
@@ -432,6 +437,15 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
           ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
           ctx.lineWidth = 2;
           ctx.strokeRect(oX, oY, oW, oH);
+
+          // Update overlay touch target position to match drawn overlay
+          const touchTarget = canvas.parentElement?.querySelector('.overlay-touch-target') as HTMLElement;
+          if (touchTarget) {
+            touchTarget.style.left = `${oX}px`;
+            touchTarget.style.top = `${oY}px`;
+            touchTarget.style.width = `${oW}px`;
+            touchTarget.style.height = `${oH}px`;
+          }
         }
       }
 
@@ -439,6 +453,57 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
     };
 
     render();
+  }
+
+  private setupOverlayTouchHandling(): void {
+    const touchTarget = this.document.querySelector('.overlay-touch-target') as HTMLElement;
+    if (!touchTarget) {
+      console.error('[Composite] Touch target not found');
+      return;
+    }
+
+    const handler = (e: PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (e.type === 'pointerdown') {
+        touchTarget.setPointerCapture(e.pointerId);
+      }
+
+      const video = this.compositeOverlayVideo;
+      const iframe = this.compositeOverlayIframe;
+      if (!video || !iframe?.contentWindow) return;
+
+      // Convert touch position to relative coords within overlay (0..1)
+      const relX = e.offsetX / touchTarget.offsetWidth;
+      const relY = e.offsetY / touchTarget.offsetHeight;
+
+      // Map to CVD 2's video element coordinates
+      // touch.js reads offsetX/offsetY which the browser computes as (clientX - videoRect.left)
+      const videoRect = video.getBoundingClientRect();
+      const clientX = videoRect.left + relX * video.offsetWidth;
+      const clientY = videoRect.top + relY * video.offsetHeight;
+
+      // Use iframe's PointerEvent constructor for cross-frame compatibility
+      const iframeWindow = iframe.contentWindow as any;
+      const syntheticEvent = new iframeWindow.PointerEvent(e.type, {
+        clientX,
+        clientY,
+        pointerId: e.pointerId,
+        pointerType: e.pointerType || 'touch',
+        isPrimary: e.isPrimary,
+        bubbles: true,
+        cancelable: true,
+      });
+
+      video.dispatchEvent(syntheticEvent);
+    };
+
+    touchTarget.addEventListener('pointerdown', handler);
+    touchTarget.addEventListener('pointermove', handler);
+    touchTarget.addEventListener('pointerup', handler);
+    touchTarget.addEventListener('pointercancel', handler);
+    console.log('[Composite] Overlay touch handling ready');
   }
 
   private stopCompositing(): void {
@@ -450,6 +515,8 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
       clearInterval(this.compositeCheckInterval);
       this.compositeCheckInterval = null;
     }
+    this.compositeOverlayVideo = null;
+    this.compositeOverlayIframe = null;
     this.compositeActive = false;
     console.log('[Composite] Stopped');
   }
