@@ -39,18 +39,24 @@
             <iframe
             [ngClass]="{
               hidden:
-                display.display_width === null ||
-                display.display_height === null
+                (display.display_width === null ||
+                display.display_height === null) ||
+                getOverlayId(display.id)
             }"
               [src]="display.id | safedeviceurl"
               [title]="display.id"
             ></iframe>
           </div>
           @if (getOverlayId(display.id); as overlayId) {
-            <div class="composite-overlay">
+            <div class="composite-container">
+              <canvas class="composite-canvas"
+                [attr.data-device-id]="display.id"
+                [attr.data-overlay-id]="overlayId">
+              </canvas>
               <iframe
+                class="composite-source-hidden"
                 [src]="overlayId | safedeviceurl"
-                [title]="'overlay-' + overlayId"
+                [title]="'composite-source-' + overlayId"
               ></iframe>
             </div>
           }

@@ -1,4 +1,4 @@
-import {Component, OnInit, OnDestroy, AfterViewInit, ViewChild, ElementRef, inject, DOCUMENT, ChangeDetectionStrategy} from '@angular/core';
+import {Component, OnInit, OnDestroy, AfterViewInit, AfterViewChecked, ViewChild, ElementRef, inject, DOCUMENT, ChangeDetectionStrategy} from '@angular/core';
 import {DisplaysService} from '../displays.service';
 import {
   asyncScheduler,
@@ -45,7 +45,7 @@ interface DeviceGridItemUpdate {
   templateUrl: './view-pane.component.html',
   styleUrls: ['./view-pane.component.scss'],
 })
-export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
+export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, AfterViewChecked {
   @ViewChild(KtdGridComponent, { static: true })
   grid!: KtdGridComponent;
   @ViewChild('viewPane', { static: true })
@@ -99,6 +99,10 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private currentLayout: DeviceGridItem[] = [];
 
+  private compositeAnimationId: number | null = null;
+  private compositeCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private compositeActive = false;
+
   private readonly freeScale = 0;
 
   ngOnInit(): void {
@@ -122,9 +126,24 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
       });
   }
 
+  ngAfterViewChecked(): void {
+    if (!this.compositeActive && this.currentLayout.length >= 2) {
+      const canvas = this.document.querySelector('canvas.composite-canvas') as HTMLCanvasElement;
+      if (canvas) {
+        this.compositeActive = true;
+        const deviceId = canvas.getAttribute('data-device-id')!;
+        const overlayId = canvas.getAttribute('data-overlay-id')!;
+        this.startCompositing(deviceId, overlayId);
+      }
+    } else if (this.compositeActive && this.currentLayout.length < 2) {
+      this.stopCompositing();
+    }
+  }
+
   ngOnDestroy(): void {
     this.resizeSubscription.unsubscribe();
     this.resizeObserver.unobserve(this.viewPane.nativeElement);
+    this.stopCompositing();
   }
 
   private visibleDevicesChanged: Observable<DeviceGridItemUpdate[]> = this.displaysService.getDeviceVisibilities().pipe(map(deviceVisibilityInfos => deviceVisibilityInfos.map(info => {
@@ -319,11 +338,99 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit {
 
   getOverlayId(deviceId: string): string | null {
     if (this.currentLayout.length < 2) return null;
-    const overlayId = deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
-    if (overlayId) {
-      console.log('[PIP] Overlay active: overlaying', overlayId, 'on', deviceId, '(CENTER mode)');
+    return deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
+  }
+
+  private startCompositing(deviceId: string, overlayId: string): void {
+    console.log('[Composite] Starting:', deviceId, '+', overlayId);
+
+    const canvas = this.document.querySelector(
+      `canvas[data-device-id="${deviceId}"]`
+    ) as HTMLCanvasElement;
+    const mainIframe = this.document.querySelector(
+      `iframe[title="${deviceId}"]`
+    ) as HTMLIFrameElement;
+    const overlayIframe = this.document.querySelector(
+      `iframe[title="composite-source-${overlayId}"]`
+    ) as HTMLIFrameElement;
+
+    if (!canvas || !mainIframe || !overlayIframe) {
+      console.error('[Composite] Missing elements:', {canvas: !!canvas, mainIframe: !!mainIframe, overlayIframe: !!overlayIframe});
+      this.compositeActive = false;
+      return;
     }
-    return overlayId;
+
+    this.compositeCheckInterval = setInterval(() => {
+      try {
+        const mainVideo = mainIframe.contentDocument?.querySelector('video') as HTMLVideoElement;
+        const overlayVideo = overlayIframe.contentDocument?.querySelector('video') as HTMLVideoElement;
+
+        if (mainVideo && overlayVideo && mainVideo.videoWidth > 0 && overlayVideo.videoWidth > 0) {
+          clearInterval(this.compositeCheckInterval!);
+          this.compositeCheckInterval = null;
+          console.log('[Composite] Both videos ready — starting render loop',
+            `main: ${mainVideo.videoWidth}x${mainVideo.videoHeight}`,
+            `overlay: ${overlayVideo.videoWidth}x${overlayVideo.videoHeight}`);
+          this.runCompositeLoop(canvas, mainVideo, overlayVideo);
+        } else {
+          console.log('[Composite] Waiting for videos...',
+            'main:', !!mainVideo, mainVideo?.videoWidth,
+            'overlay:', !!overlayVideo, overlayVideo?.videoWidth);
+        }
+      } catch (e) {
+        console.error('[Composite] Cannot access iframe content:', e);
+      }
+    }, 500);
+  }
+
+  private runCompositeLoop(
+    canvas: HTMLCanvasElement,
+    mainVideo: HTMLVideoElement,
+    overlayVideo: HTMLVideoElement
+  ): void {
+    const ctx = canvas.getContext('2d')!;
+
+    const render = () => {
+      if (mainVideo.videoWidth > 0 && mainVideo.videoHeight > 0) {
+        canvas.width = mainVideo.videoWidth;
+        canvas.height = mainVideo.videoHeight;
+
+        // Background: first CVD full size
+        ctx.drawImage(mainVideo, 0, 0, canvas.width, canvas.height);
+
+        // Foreground: second CVD at 30% size, centered
+        if (overlayVideo.videoWidth > 0 && overlayVideo.videoHeight > 0) {
+          const scale = 0.3;
+          const overlayW = canvas.width * scale;
+          const overlayH = canvas.height * scale;
+          const overlayX = (canvas.width - overlayW) / 2;
+          const overlayY = (canvas.height - overlayH) / 2;
+
+          ctx.drawImage(overlayVideo, overlayX, overlayY, overlayW, overlayH);
+
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(overlayX, overlayY, overlayW, overlayH);
+        }
+      }
+
+      this.compositeAnimationId = requestAnimationFrame(render);
+    };
+
+    render();
+  }
+
+  private stopCompositing(): void {
+    if (this.compositeAnimationId !== null) {
+      cancelAnimationFrame(this.compositeAnimationId);
+      this.compositeAnimationId = null;
+    }
+    if (this.compositeCheckInterval !== null) {
+      clearInterval(this.compositeCheckInterval);
+      this.compositeCheckInterval = null;
+    }
+    this.compositeActive = false;
+    console.log('[Composite] Stopped');
   }
 
   private createDeviceGridItem(id: string): DeviceGridItem {
