@@ -427,7 +427,7 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
         // Overlay: second CVD at 30% size, centered within the video area
         // Preserve overlay's native aspect ratio instead of stretching to main video's ratio
         if (overlayVideo.videoWidth > 0 && overlayVideo.videoHeight > 0) {
-          const scale = 0.3;
+          const scale = 0.7;
           const overlayAspect = overlayVideo.videoWidth / overlayVideo.videoHeight;
           const maxW = vr.width * scale;
           const maxH = vr.height * scale;
@@ -452,10 +452,16 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
           ctx.strokeRect(oX, oY, oW, oH);
 
           // Update overlay touch target position to match drawn overlay
+          // Canvas internal coords and CSS coords can differ if canvas element
+          // is offset within its container (e.g. inline baseline gap)
           const touchTarget = canvas.parentElement?.querySelector('.overlay-touch-target') as HTMLElement;
           if (touchTarget) {
-            touchTarget.style.left = `${oX}px`;
-            touchTarget.style.top = `${oY}px`;
+            const canvasRect = canvas.getBoundingClientRect();
+            const containerRect = canvas.parentElement!.getBoundingClientRect();
+            const deltaX = canvasRect.left - containerRect.left;
+            const deltaY = canvasRect.top - containerRect.top;
+            touchTarget.style.left = `${oX + deltaX}px`;
+            touchTarget.style.top = `${oY + deltaY}px`;
             touchTarget.style.width = `${oW}px`;
             touchTarget.style.height = `${oH}px`;
           }
