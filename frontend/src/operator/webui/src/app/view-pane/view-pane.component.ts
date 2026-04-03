@@ -497,11 +497,18 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
       const relX = e.offsetX / touchTarget.offsetWidth;
       const relY = e.offsetY / touchTarget.offsetHeight;
 
-      // Map to CVD 2's video element coordinates
-      // touch.js reads offsetX/offsetY which the browser computes as (clientX - videoRect.left)
+      // Map to CVD 2's video element coordinates.
+      // touch.js applies a uniform scaling factor (videoWidth / offsetWidth) to
+      // BOTH x and y. This is only correct when the video element's aspect ratio
+      // matches the content's. To compensate, we compute clientY so that after
+      // touch.js multiplies offsetY by (videoWidth / offsetWidth), the result
+      // equals relY * videoHeight.
+      //   offsetY * (videoWidth / offsetWidth) = relY * videoHeight
+      //   offsetY = relY * videoHeight * offsetWidth / videoWidth
+      //           = relY * (videoHeight / videoWidth) * offsetWidth
       const videoRect = video.getBoundingClientRect();
       const clientX = videoRect.left + relX * video.offsetWidth;
-      const clientY = videoRect.top + relY * video.offsetHeight;
+      const clientY = videoRect.top + relY * (video.videoHeight / video.videoWidth) * video.offsetWidth;
 
       // Use iframe's PointerEvent constructor for cross-frame compatibility
       const iframeWindow = iframe.contentWindow as any;
