@@ -466,31 +466,11 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
             touchTarget.style.width = `${oW}px`;
             touchTarget.style.height = `${oH}px`;
 
-            // One-time debug log for overlay layout
+            // One-time debug log
             if (!this.compositeDebugLogged) {
               this.compositeDebugLogged = true;
-              console.log('[Render Debug] Canvas internal:', { w: canvas.width, h: canvas.height });
-              console.log('[Render Debug] Canvas CSS rect:', canvasRect);
-              console.log('[Render Debug] Container rect:', containerRect);
-              console.log('[Render Debug] Delta:', { deltaX, deltaY });
-              console.log('[Render Debug] Main video rect (vr):', { left: vr.left, top: vr.top, width: vr.width, height: vr.height });
-              console.log('[Render Debug] Overlay drawn at canvas coords:', { oX, oY, oW, oH });
-              console.log('[Render Debug] Touch target CSS:', {
-                left: touchTarget.style.left,
-                top: touchTarget.style.top,
-                width: touchTarget.style.width,
-                height: touchTarget.style.height,
-              });
-              console.log('[Render Debug] Canvas scale factor:', {
-                scaleX: canvasRect.width / canvas.width,
-                scaleY: canvasRect.height / canvas.height,
-              });
-              console.log('[Render Debug] Overlay visual CSS position:', {
-                visualLeft: oX * (canvasRect.width / canvas.width),
-                visualTop: oY * (canvasRect.height / canvas.height),
-                visualWidth: oW * (canvasRect.width / canvas.width),
-                visualHeight: oH * (canvasRect.height / canvas.height),
-              });
+              console.log('[Render Debug] Overlay:', { oX, oY, oW, oH });
+              console.log('[Render Debug] Canvas:', { w: canvas.width, h: canvas.height, scaleY: canvasRect.height / canvas.height });
             }
           }
         }
@@ -525,51 +505,23 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
       const relX = e.offsetX / touchTarget.offsetWidth;
       const relY = e.offsetY / touchTarget.offsetHeight;
 
-      // Map to CVD 2's video element coordinates
+      // touch.js reads e.offsetX/e.offsetY and scales them by
+      // (videoWidth / offsetWidth). For cross-frame synthetic events,
+      // Chrome does NOT reliably compute offsetX/offsetY from clientX/clientY.
+      // So we set offsetX/offsetY explicitly to the values touch.js expects.
+      const targetOffsetX = relX * video.offsetWidth;
+      const targetOffsetY = relY * video.offsetHeight;
+
       const videoRect = video.getBoundingClientRect();
-      const clientX = videoRect.left + relX * video.offsetWidth;
-      const clientY = videoRect.top + relY * video.offsetHeight;
+      const clientX = videoRect.left + targetOffsetX;
+      const clientY = videoRect.top + targetOffsetY;
 
-      if (e.type === 'pointerdown') {
-        console.log('[Touch Debug] === POINTER DOWN ===');
-        console.log('[Touch Debug] Touch target:', {
-          offsetWidth: touchTarget.offsetWidth,
-          offsetHeight: touchTarget.offsetHeight,
-          cssWidth: touchTarget.style.width,
-          cssHeight: touchTarget.style.height,
-          rect: touchTarget.getBoundingClientRect(),
-        });
-        console.log('[Touch Debug] Event offset:', { offsetX: e.offsetX, offsetY: e.offsetY });
-        console.log('[Touch Debug] Relative:', { relX, relY });
-        console.log('[Touch Debug] Video element:', {
-          offsetWidth: video.offsetWidth,
-          offsetHeight: video.offsetHeight,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-          aspectRatio_element: video.offsetWidth / video.offsetHeight,
-          aspectRatio_content: video.videoWidth / video.videoHeight,
-          rect: videoRect,
-        });
-        console.log('[Touch Debug] Synthetic clientX/Y:', { clientX, clientY });
-        console.log('[Touch Debug] Expected offsetX/Y in iframe:', {
-          expectedOffsetX: clientX - videoRect.left,
-          expectedOffsetY: clientY - videoRect.top,
-        });
-        const scaling = video.videoWidth / video.offsetWidth;
-        console.log('[Touch Debug] touch.js scaling:', scaling);
-        console.log('[Touch Debug] Final device coords (predicted):', {
-          x: Math.trunc((clientX - videoRect.left) * scaling),
-          y: Math.trunc((clientY - videoRect.top) * scaling),
-          expected_x: Math.trunc(relX * video.videoWidth),
-          expected_y: Math.trunc(relY * video.videoHeight),
-        });
-      }
-
-      // Use iframe's PointerEvent constructor for cross-frame compatibility
       const iframeWindow = iframe.contentWindow as any;
       const syntheticEvent = new iframeWindow.PointerEvent(e.type, {
         clientX,
         clientY,
+        offsetX: targetOffsetX,
+        offsetY: targetOffsetY,
         pointerId: e.pointerId,
         pointerType: e.pointerType || 'touch',
         isPrimary: e.isPrimary,
@@ -577,25 +529,7 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
         cancelable: true,
       });
 
-      // Log what touch.js actually receives
-      if (e.type === 'pointerdown') {
-        console.log('[Touch Debug] Synthetic event created:', {
-          clientX: syntheticEvent.clientX,
-          clientY: syntheticEvent.clientY,
-          offsetX: syntheticEvent.offsetX,
-          offsetY: syntheticEvent.offsetY,
-        });
-      }
-
       video.dispatchEvent(syntheticEvent);
-
-      // Check offsetX/offsetY after dispatch (may be recomputed)
-      if (e.type === 'pointerdown') {
-        console.log('[Touch Debug] After dispatch offsetX/Y:', {
-          offsetX: syntheticEvent.offsetX,
-          offsetY: syntheticEvent.offsetY,
-        });
-      }
     };
 
     touchTarget.addEventListener('pointerdown', handler);
