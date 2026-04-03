@@ -425,10 +425,23 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
         ctx.drawImage(mainVideo, vr.left, vr.top, vr.width, vr.height);
 
         // Overlay: second CVD at 30% size, centered within the video area
+        // Preserve overlay's native aspect ratio instead of stretching to main video's ratio
         if (overlayVideo.videoWidth > 0 && overlayVideo.videoHeight > 0) {
           const scale = 0.3;
-          const oW = vr.width * scale;
-          const oH = vr.height * scale;
+          const overlayAspect = overlayVideo.videoWidth / overlayVideo.videoHeight;
+          const maxW = vr.width * scale;
+          const maxH = vr.height * scale;
+          // Fit overlay within the max box while keeping its own aspect ratio
+          let oW: number, oH: number;
+          if (maxW / maxH > overlayAspect) {
+            // max box is wider than overlay → constrain by height
+            oH = maxH;
+            oW = maxH * overlayAspect;
+          } else {
+            // max box is taller than overlay → constrain by width
+            oW = maxW;
+            oH = maxW / overlayAspect;
+          }
           const oX = vr.left + (vr.width - oW) / 2;
           const oY = vr.top + (vr.height - oH) / 2;
 
