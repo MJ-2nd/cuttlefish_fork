@@ -520,14 +520,18 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
       const syntheticEvent = new iframeWindow.PointerEvent(e.type, {
         clientX,
         clientY,
-        offsetX: targetOffsetX,
-        offsetY: targetOffsetY,
         pointerId: e.pointerId,
         pointerType: e.pointerType || 'touch',
         isPrimary: e.isPrimary,
         bubbles: true,
         cancelable: true,
       });
+
+      // Chrome recomputes offsetX/offsetY for cross-frame synthetic events
+      // using the wrong coordinate system. Override the prototype getter with
+      // a fixed own-property so touch.js reads the correct values.
+      Object.defineProperty(syntheticEvent, 'offsetX', {value: targetOffsetX});
+      Object.defineProperty(syntheticEvent, 'offsetY', {value: targetOffsetY});
 
       video.dispatchEvent(syntheticEvent);
     };
