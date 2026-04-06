@@ -102,12 +102,9 @@ ktd-grid {
         }
 
         .fit-panel {
-          // Keep iframe alive for video source but visually hidden
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          overflow: hidden;
-          opacity: 0;
+          // Keep iframe at full size so browser continues video decoding,
+          // but visually hidden so only the header is visible.
+          visibility: hidden;
           pointer-events: none;
         }
       }
