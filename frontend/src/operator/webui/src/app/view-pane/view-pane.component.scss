@@ -92,6 +92,26 @@ ktd-grid {
 
       } // .composite-container
     } // .device-viewer-display
+
+    &.collapsed {
+      .device-viewer-display {
+        background-color: transparent;
+
+        .viewer-header {
+          border-radius: 10px;
+        }
+
+        .fit-panel {
+          // Keep iframe alive for video source but visually hidden
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          opacity: 0;
+          pointer-events: none;
+        }
+      }
+    } // .collapsed
   } // .device-viewer
 } // .view-pane
 

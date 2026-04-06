@@ -12,6 +12,7 @@
     @for (display of resultLayout | async; track trackById($index, display)) {
       <ktd-grid-item
         class="device-viewer"
+        [class.collapsed]="isOverlaySource(display.id)"
         dragStartThreshold="0"
         transition="transform 500ms ease, width 500ms ease, height 500ms ease"
         [id]="display.id"

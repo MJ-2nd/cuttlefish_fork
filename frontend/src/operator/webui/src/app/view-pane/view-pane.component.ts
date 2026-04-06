@@ -344,6 +344,11 @@ export class ViewPaneComponent implements OnInit, OnDestroy, AfterViewInit, Afte
     return deviceId === this.currentLayout[0].id ? this.currentLayout[1].id : null;
   }
 
+  isOverlaySource(deviceId: string): boolean {
+    if (this.currentLayout.length < 2) return false;
+    return deviceId === this.currentLayout[1].id;
+  }
+
   private startCompositing(deviceId: string, overlayId: string): void {
     console.log('[Composite] Starting:', deviceId, '+', overlayId);
 
