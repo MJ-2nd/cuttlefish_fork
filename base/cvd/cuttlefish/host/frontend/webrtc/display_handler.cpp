@@ -27,7 +27,10 @@
 #include <libyuv.h>
 #include "absl/log/log.h"
 
+#include <fmt/format.h>
+
 #include "cuttlefish/host/frontend/webrtc/libdevice/streamer.h"
+#include "cuttlefish/host/libs/config/cuttlefish_config.h"
 #include "cuttlefish/host/libs/screen_connector/composition_manager.h"
 #include "cuttlefish/host/libs/screen_connector/video_frame_buffer.h"
 
@@ -41,6 +44,43 @@ DisplayHandler::DisplayHandler(
       streamer_(streamer),
       screenshot_handler_(screenshot_handler),
       screen_connector_(screen_connector) {
+  // ------------------------------------------------------------------
+  // [Shared-memory frame writer initialization]
+  //
+  // Always create a DisplayRingBufferManager so that every frame the
+  // guest produces is copied into a POSIX shared-memory ring buffer.
+  //
+  // The shared-memory object will appear at:
+  //   /dev/shm/cf_shmem_display_{vm_index}_{display_index}_{group_uuid}
+  //
+  // Any external process inside the same mount namespace (e.g. the
+  // Docker container) can open it with:
+  //   shm_open("/cf_shmem_display_0_0_<uuid>", O_RDONLY, 0)
+  // and then mmap() it to read frames in real time.
+  //
+  // We read vm_index and group_uuid from CuttlefishConfig, which is
+  // always available when the webrtc process is running.
+  // ------------------------------------------------------------------
+  auto cvd_config = CuttlefishConfig::Get();
+  if (cvd_config) {
+    auto instance = cvd_config->ForDefaultInstance();
+    shm_vm_index_ = instance.index();
+    std::string group_uuid =
+        fmt::format("{}", cvd_config->ForDefaultEnvironment().group_uuid());
+
+    // Create the ring buffer manager.
+    // vm_index identifies this VM within the group.
+    // group_uuid makes the shm name unique across different CVD groups.
+    shm_frame_writer_ = std::make_unique<DisplayRingBufferManager>(
+        shm_vm_index_, group_uuid);
+
+    LOG(INFO) << "Shared-memory frame writer initialized: vm_index="
+              << shm_vm_index_ << " group_uuid=" << group_uuid;
+  } else {
+    LOG(WARNING) << "CuttlefishConfig not available; "
+                 << "shared-memory frame writer disabled.";
+  }
+
   // Initialize the thread after the rest of the class
   frame_repeater_ = std::thread([this]() { RepeatFramesPeriodically(); });
   screen_connector_.SetCallback(GetScreenConnectorCallback());
@@ -66,6 +106,34 @@ DisplayHandler::DisplayHandler(
             display_sinks_[display_number] = display;
             if (composition_manager_.has_value()) {
               composition_manager_.value()->OnDisplayCreated(e);
+            }
+
+            // --------------------------------------------------------
+            // [Shared-memory] Allocate a ring buffer for this display.
+            //
+            // When the guest creates a new display (e.g. display 0),
+            // we allocate a POSIX shm region sized for 3 frames at
+            // the display's resolution (width * height * 4 bytes RGBA
+            // per frame, plus a small header).
+            //
+            // The resulting shm object name is:
+            //   /cf_shmem_display_{vm}_{display_number}_{uuid}
+            //
+            // This must happen before any WriteFrame() call for this
+            // display, otherwise writes are silently dropped.
+            // --------------------------------------------------------
+            if (shm_frame_writer_) {
+              auto result = shm_frame_writer_->CreateLocalDisplayBuffer(
+                  shm_vm_index_, e.display_number,
+                  e.display_width, e.display_height);
+              if (result.ok()) {
+                LOG(INFO) << "Shared-memory buffer created for display "
+                          << e.display_number << " ("
+                          << e.display_width << "x" << e.display_height << ")";
+              } else {
+                LOG(ERROR) << "Failed to create shm buffer for display "
+                           << e.display_number << ": " << result.error();
+              }
             }
           } else if constexpr (std::is_same_v<DisplayDestroyedEvent, T>) {
             VLOG(1) << "Display:" << e.display_number << " destroyed.";
@@ -98,8 +166,25 @@ DisplayHandler::GetScreenConnectorCallback() {
   // only to tell the producer how to create a ProcessedFrame to cache into the
   // queue
   auto& composition_manager = composition_manager_;
+
+  // ------------------------------------------------------------------
+  // [Shared-memory frame writer] Capture references to the shm writer
+  // so that every frame is also written to /dev/shm/.
+  //
+  // The lambda captures:
+  //   shm_writer   - pointer to DisplayRingBufferManager (may be null)
+  //   shm_vm_index - this VM's index within the CVD group
+  //
+  // WriteFrame() copies the raw RGBA/BGRA pixels into the next slot
+  // of the ring buffer.  If the buffer for this display hasn't been
+  // created yet (CreateLocalDisplayBuffer not called), WriteFrame()
+  // safely returns nullptr and does nothing.
+  // ------------------------------------------------------------------
+  DisplayRingBufferManager* shm_writer = shm_frame_writer_.get();
+  int shm_vm_index = shm_vm_index_;
+
   DisplayHandler::GenerateProcessedFrameCallback callback =
-      [&composition_manager](
+      [&composition_manager, shm_writer, shm_vm_index](
           uint32_t display_number, uint32_t frame_width, uint32_t frame_height,
           uint32_t frame_fourcc_format, uint32_t frame_stride_bytes,
           uint8_t* frame_pixels, WebRtcScProcessedFrame& processed_frame) {
@@ -111,6 +196,30 @@ DisplayHandler::GetScreenConnectorCallback() {
               display_number, frame_width, frame_height, frame_fourcc_format,
               frame_stride_bytes, frame_pixels);
         }
+
+        // ------------------------------------------------------------
+        // [Shared-memory] Write the raw frame pixels to /dev/shm/.
+        //
+        // This happens on every frame, before the RGBA→I420 conversion
+        // for WebRTC.  The data written is the original RGBA (or BGRA)
+        // pixels — exactly what the guest GPU produced.
+        //
+        // Frame size = width * height * 4 (RGBA, 32bpp).
+        //
+        // External reader should:
+        //   1. shm_open("/cf_shmem_display_0_0_<uuid>", O_RDONLY)
+        //   2. mmap() the fd
+        //   3. Read the header (16 bytes) to get w, h, bpp, frame_index
+        //   4. Compute frame offset:
+        //        offset = 16 + (frame_index * w * h * bpp)
+        //   5. Read w*h*4 bytes of RGBA pixel data
+        // ------------------------------------------------------------
+        if (shm_writer) {
+          shm_writer->WriteFrame(
+              shm_vm_index, display_number, frame_pixels,
+              frame_width * frame_height * 4);
+        }
+
         if (frame_fourcc_format == DRM_FORMAT_ARGB8888 ||
             frame_fourcc_format == DRM_FORMAT_XRGB8888) {
           libyuv::ARGBToI420(

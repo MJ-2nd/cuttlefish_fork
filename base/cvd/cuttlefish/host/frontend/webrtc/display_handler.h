@@ -105,5 +105,20 @@ class DisplayHandler {
   int num_active_clients_ = 0;
   std::mutex repeater_state_mutex_;
   std::condition_variable repeater_state_condvar_;
+
+  // ---------------------------------------------------------------
+  // Shared-memory frame writer (always active)
+  //
+  // Writes every incoming RGBA/BGRA frame into a POSIX shared-memory
+  // ring buffer at /dev/shm/cf_shmem_display_{vm}_{disp}_{uuid}.
+  // External processes can shm_open() + mmap() the same name to
+  // read frames in real time without going through WebRTC.
+  //
+  // The ring buffer holds 3 frames; the header at offset 0 stores
+  // width, height, bpp (4), and the index of the most recent frame.
+  // See ring_buffer_manager.h for the memory layout.
+  // ---------------------------------------------------------------
+  std::unique_ptr<DisplayRingBufferManager> shm_frame_writer_;
+  int shm_vm_index_ = 0;  // VM index within the CVD group
 };
 }  // namespace cuttlefish
