@@ -46,7 +46,7 @@ Result<std::unique_ptr<DisplayRingBuffer>> DisplayRingBuffer::Create(
   void* addr = nullptr;
 
   SharedFD sfd =
-      SharedFD::ShmOpen(name, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+      SharedFD::ShmOpen(name, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
   CF_EXPECTF(sfd->IsOpen(), "Display buffer create failed {}", sfd->StrError());
 
