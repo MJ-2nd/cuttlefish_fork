@@ -4,4 +4,5 @@ docker run -v=$HOME/.cache/bazel:/root/.cache/bazel -v=$PWD:/mnt/build -w /mnt/b
 
 docker run -v=$HOME/.cache/bazel:/root/.cache/bazel -v=$PWD:/mnt/build -w /mnt/build android-cuttlefish-build:latest frontend
 
+sudo rm -rf base/debian/tmp frontend/debian/tmp
 ./container/image-builder.sh -m dev -t cuttlefish-orchestration:composite
