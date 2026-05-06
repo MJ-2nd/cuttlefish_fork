@@ -67,8 +67,10 @@ def generate_mjpeg():
 
             # BGRA (DRM_FORMAT_ARGB8888 in little-endian) -> RGB
             img = Image.frombytes("RGBA", (w, h), pixel_data)
-            b, g, r, a = img.split()
-            img = Image.merge("RGB", (r, g, b))
+            # b, g, r, a = img.split()
+            # img = Image.merge("RGB", (r, g, b))
+
+            img = img.convert("RGB")
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=80)
