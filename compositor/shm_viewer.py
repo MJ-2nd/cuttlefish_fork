@@ -14,18 +14,18 @@ from flask import Flask, Response
 HEADER_SIZE = 16  # 4x uint32: width, height, bpp, last_valid_frame_index
 
 app = Flask(__name__)
-shm_path: str = ""
+shm_paths: list[str] = []
 
 
-def find_shm_file() -> str:
-    """Auto-detect a cf_shmem_display_* file in /dev/shm/."""
+def find_shm_files() -> list[str]:
+    """Auto-detect cf_shmem_display_* files in /dev/shm/."""
     candidates = sorted(glob.glob("/dev/shm/cf_shmem_display_*"))
     if not candidates:
         raise FileNotFoundError(
             "No /dev/shm/cf_shmem_display_* files found. Is CVD running?"
         )
     print(f"Found shared memory files: {candidates}")
-    return candidates[0]
+    return candidates
 
 
 def read_frame(mm: mmap.mmap) -> tuple[int, int, bytes] | None:
@@ -48,11 +48,11 @@ def read_frame(mm: mmap.mmap) -> tuple[int, int, bytes] | None:
     return w, h, mm[offset : offset + frame_size]
 
 
-def generate_mjpeg():
+def generate_mjpeg(path: str):
     """Generator that yields MJPEG frames from shared memory."""
     from PIL import Image
 
-    fd = os.open(shm_path, os.O_RDONLY)
+    fd = os.open(path, os.O_RDONLY)
     file_size = os.fstat(fd).st_size
     mm = mmap.mmap(fd, file_size, access=mmap.ACCESS_READ)
 
@@ -67,9 +67,6 @@ def generate_mjpeg():
 
             # BGRA (DRM_FORMAT_ARGB8888 in little-endian) -> RGB
             img = Image.frombytes("RGBA", (w, h), pixel_data)
-            # b, g, r, a = img.split()
-            # img = Image.merge("RGB", (r, g, b))
-
             img = img.convert("RGB")
 
             buf = io.BytesIO()
@@ -89,36 +86,50 @@ def generate_mjpeg():
 
 @app.route("/")
 def index():
+    items = ""
+    for i, path in enumerate(shm_paths):
+        label = os.path.basename(path)
+        items += (
+            f"<div style='text-align:center'>"
+            f"<div style='color:#aaa;margin-bottom:4px;font-family:monospace'>{label}</div>"
+            f"<img src='/stream/{i}' style='max-width:100%;max-height:90vh'>"
+            f"</div>"
+        )
     return (
-        "<html><body style='margin:0;background:#000'>"
-        "<img src='/stream' style='max-width:100vw;max-height:100vh'>"
+        "<html><body style='margin:0;padding:8px;background:#000;"
+        "display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:flex-start'>"
+        f"{items}"
         "</body></html>"
     )
 
 
-@app.route("/stream")
-def stream():
+@app.route("/stream/<int:idx>")
+def stream(idx):
+    if idx < 0 or idx >= len(shm_paths):
+        return "Invalid stream index", 404
     return Response(
-        generate_mjpeg(),
+        generate_mjpeg(shm_paths[idx]),
         mimetype="multipart/x-mixed-replace; boundary=frame",
     )
 
 
 def main():
-    global shm_path
+    global shm_paths
 
     parser = argparse.ArgumentParser(description="CVD Shared Memory Viewer")
     parser.add_argument(
         "--shm",
+        nargs="*",
         default=None,
-        help="Path to shared memory file (auto-detect if omitted)",
+        help="Path(s) to shared memory file(s) (auto-detect if omitted)",
     )
     parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 
-    shm_path = args.shm or find_shm_file()
-    print(f"Using shared memory: {shm_path}")
+    shm_paths = args.shm if args.shm else find_shm_files()
+    print(f"Using shared memory: {shm_paths}")
+    print(f"Streaming {len(shm_paths)} display(s)")
     print(f"Open http://{args.host}:{args.port} in your browser")
 
     app.run(host=args.host, port=args.port, threaded=True)
