@@ -174,26 +174,39 @@ Result<std::unique_ptr<CompositionManager>> CompositionManager::Create() {
   return mgr;
 }
 
-// shm buffer creation is now handled by ScreenConnector::SetDisplayEventCallback().
+// Whenever a display is created, a shared memory IPC ringbuffer
+// is initialized so that other frames can obtain this display's contents
+// for composition.
 void CompositionManager::OnDisplayCreated(const DisplayCreatedEvent& e) {
+  auto result = display_ring_buffer_manager_.CreateLocalDisplayBuffer(
+      cluster_index_, e.display_number, e.display_width, e.display_height);
+
+  if (!result.ok()) {
+    LOG(FATAL) << "OnDisplayCreated failed: " << result.error();
+  }
 }
 
 // Called every frame.
-// Note: shm writing is handled by ScreenConnector::InjectFrame() before this
-// callback is invoked. This method only stores metadata and performs alpha
-// blending of overlay layers.
 void CompositionManager::OnFrame(uint32_t display_number, uint32_t frame_width,
                                  uint32_t frame_height,
                                  uint32_t frame_fourcc_format,
                                  uint32_t frame_stride_bytes,
                                  uint8_t* frame_pixels) {
+  // First step is to push the local display pixels to the shared memory region
+  // ringbuffer
+  uint8_t* shmem_local_display = display_ring_buffer_manager_.WriteFrame(
+      cluster_index_, display_number, frame_pixels,
+      frame_width * frame_height * 4);
+
+  // Next some upkeep, the format of the frame is needed for blending
+  // computations.
   LastFrameInfo last_frame_info = LastFrameInfo(
       display_number, frame_width, frame_height, frame_fourcc_format,
-      frame_stride_bytes, frame_pixels);
+      frame_stride_bytes, (uint8_t*)shmem_local_display);
 
   last_frame_info_map_[display_number] = last_frame_info;
 
-  // The pixels of the current frame are modified by blending any
+  // Lastly, the pixels of the current frame are modified by blending any
   // configured layers over the top of the current 'base layer'
   AlphaBlendLayers(frame_pixels, display_number, frame_width, frame_height);
 }

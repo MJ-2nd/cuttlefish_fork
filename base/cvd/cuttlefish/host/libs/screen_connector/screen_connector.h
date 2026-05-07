@@ -26,7 +26,6 @@
 #include <unordered_set>
 
 #include <fruit/fruit.h>
-#include <fmt/format.h>
 #include "absl/log/log.h"
 
 #include "cuttlefish/common/libs/confui/confui.h"
@@ -36,7 +35,6 @@
 #include "cuttlefish/host/libs/config/gpu_mode.h"
 #include "cuttlefish/host/libs/confui/host_mode_ctrl.h"
 #include "cuttlefish/host/libs/confui/host_utils.h"
-#include "cuttlefish/host/libs/screen_connector/ring_buffer_manager.h"
 #include "cuttlefish/host/libs/screen_connector/screen_connector_common.h"
 #include "cuttlefish/host/libs/screen_connector/screen_connector_multiplexer.h"
 #include "cuttlefish/host/libs/screen_connector/screen_connector_queue.h"
@@ -79,14 +77,6 @@ class ScreenConnector : public ScreenConnectorFrameRenderer {
     if (!Contains(valid_gpu_modes, instance.gpu_mode())) {
       LOG(FATAL) << "Invalid gpu mode: " << GpuModeString(instance.gpu_mode());
     }
-
-    shm_vm_index_ = instance.index();
-    std::string group_uuid =
-        fmt::format("{}", config->ForDefaultEnvironment().group_uuid());
-    shm_frame_writer_ = std::make_unique<DisplayRingBufferManager>(
-        shm_vm_index_, group_uuid);
-    LOG(INFO) << "Shared-memory frame writer initialized: vm_index="
-              << shm_vm_index_ << " group_uuid=" << group_uuid;
   }
 
   /**
@@ -133,11 +123,6 @@ class ScreenConnector : public ScreenConnectorFrameRenderer {
       return;
     }
 
-    if (shm_frame_writer_) {
-      shm_frame_writer_->WriteFrame(shm_vm_index_, display_number, frame_bytes,
-                                    frame_w * frame_h * 4);
-    }
-
     ProcessedFrameType processed_frame;
 
     {
@@ -158,31 +143,7 @@ class ScreenConnector : public ScreenConnectorFrameRenderer {
   }
 
   void SetDisplayEventCallback(DisplayEventCallback event_callback) {
-    auto wrapped = [this, cb = std::move(event_callback)](
-                       const DisplayEvent& event) {
-      std::visit(
-          [this](auto&& e) {
-            using T = std::decay_t<decltype(e)>;
-            if constexpr (std::is_same_v<DisplayCreatedEvent, T>) {
-              if (shm_frame_writer_) {
-                auto result = shm_frame_writer_->CreateLocalDisplayBuffer(
-                    shm_vm_index_, e.display_number, e.display_width,
-                    e.display_height);
-                if (result.ok()) {
-                  LOG(INFO) << "Shared-memory buffer created for display "
-                            << e.display_number << " (" << e.display_width
-                            << "x" << e.display_height << ")";
-                } else {
-                  LOG(ERROR) << "Failed to create shm buffer for display "
-                             << e.display_number;
-                }
-              }
-            }
-          },
-          event);
-      cb(event);
-    };
-    sc_android_src_.SetDisplayEventCallback(std::move(wrapped));
+    sc_android_src_.SetDisplayEventCallback(std::move(event_callback));
   }
 
   /* returns the processed frame that also includes meta-info such as
@@ -242,9 +203,6 @@ class ScreenConnector : public ScreenConnectorFrameRenderer {
   std::mutex
       streamer_callback_mutex_;  // mutex to set & read callback_from_streamer_
   std::condition_variable streamer_callback_set_cv_;
-
-  std::unique_ptr<DisplayRingBufferManager> shm_frame_writer_;
-  int shm_vm_index_ = 0;
 };
 
 }  // namespace cuttlefish

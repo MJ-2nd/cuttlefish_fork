@@ -1,6 +1,81 @@
-# CVD Framebuffer Shared Memory Format
+# CVD Framebuffer 공유 메모리
 
-CVD는 매 프레임을 POSIX 공유 메모리에 기록합니다.
+## 개요
+
+WebRTC `DisplayHandler`가 매 프레임을 POSIX 공유 메모리(`/dev/shm/`)에 기록합니다.
+외부 프로세스가 WebRTC 프로토콜 없이 `mmap()`만으로 실시간 프레임에 접근할 수 있습니다.
+
+## 아키텍처
+
+### 프레임 흐름 (Crosvm + WebRTC)
+
+```
+Guest GPU (virtio-gpu)
+        │
+        ▼
+Crosvm ──► Wayland socket (--wayland-sock)
+        │
+        ▼
+WaylandServer → Surfaces::HandleSurfaceFrame()
+        │
+        ▼
+ScreenConnector::InjectFrame()
+        │
+        ▼
+WebRTC DisplayHandler callback  ◄── 여기서 /dev/shm에 기록
+        │
+        ├──► RGBA→I420 변환 → WebRTC 스트리밍
+        └──► DisplayRingBufferManager::WriteFrame() → /dev/shm/
+```
+
+### 적용 범위
+
+| VM 매니저 | 프론트엔드 | shm 저장 | 이유 |
+|-----------|-----------|----------|------|
+| Crosvm | WebRTC | O | Wayland → ScreenConnector → DisplayHandler 경로 |
+| QEMU | QEMU 내장 VNC | X | framebuffer가 Cuttlefish를 거치지 않음 |
+
+QEMU는 자체 VNC 서버(`-vnc 127.0.0.1:port`)로 framebuffer를 직접 렌더링합니다.
+Cuttlefish의 `ScreenConnector`나 `DisplayHandler`를 거치지 않으므로 shm 저장이 불가합니다.
+
+## 구현 위치
+
+shm 로직은 `display_handler.cpp`에 있습니다.
+
+### 1. 초기화 (DisplayHandler 생성자)
+
+```cpp
+// display_handler.cpp — 생성자
+auto cvd_config = CuttlefishConfig::Get();
+auto instance = cvd_config->ForDefaultInstance();
+shm_vm_index_ = instance.index();
+std::string group_uuid =
+    fmt::format("{}", cvd_config->ForDefaultEnvironment().group_uuid());
+shm_frame_writer_ = std::make_unique<DisplayRingBufferManager>(
+    shm_vm_index_, group_uuid);
+```
+
+### 2. 디스플레이 버퍼 할당 (DisplayCreatedEvent)
+
+```cpp
+// display_handler.cpp — SetDisplayEventCallback 내부
+if (shm_frame_writer_) {
+    shm_frame_writer_->CreateLocalDisplayBuffer(
+        shm_vm_index_, e.display_number,
+        e.display_width, e.display_height);
+}
+```
+
+### 3. 프레임 기록 (GetScreenConnectorCallback)
+
+```cpp
+// display_handler.cpp — 매 프레임 콜백
+if (shm_writer) {
+    shm_writer->WriteFrame(
+        shm_vm_index, display_number, frame_pixels,
+        frame_width * frame_height * 4);
+}
+```
 
 ## 공유 메모리 파일 위치
 
@@ -60,11 +135,12 @@ pixels = mm[offset : offset + w * h * bpp]  # BGRA raw bytes
 
 ## 소스 코드 참조
 
-- 헤더 구조체: `base/cvd/cuttlefish/host/libs/screen_connector/ring_buffer_manager.h` — `DisplayRingBufferHeader`
-- 링 버퍼 구현: `base/cvd/cuttlefish/host/libs/screen_connector/ring_buffer_manager.cpp`
-- 프레임 기록 연동: `base/cvd/cuttlefish/host/libs/screen_connector/screen_connector.h` — `InjectFrame()`
-
-아키텍처 설명은 [SCREEN_CONNECTOR_SHM.md](SCREEN_CONNECTOR_SHM.md)를 참조하세요.
+| 파일 | 역할 |
+|------|------|
+| `host/frontend/webrtc/display_handler.cpp` | shm 초기화, 버퍼 할당, 프레임 기록 |
+| `host/frontend/webrtc/display_handler.h` | `shm_frame_writer_`, `shm_vm_index_` 멤버 |
+| `host/libs/screen_connector/ring_buffer_manager.h` | `DisplayRingBufferHeader`, `DisplayRingBuffer`, `DisplayRingBufferManager` |
+| `host/libs/screen_connector/ring_buffer_manager.cpp` | 링 버퍼 구현 (생성, 읽기, 쓰기) |
 
 ## 뷰어
 
