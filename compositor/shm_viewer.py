@@ -17,11 +17,11 @@ app = Flask(__name__)
 shm_paths: list[str] = []
 
 COMPOSITE_MODES = {
-    "overlap": "Full Overlap — 디스플레이를 순서대로 겹침",
-    "split_h": "Side-by-Side Split — 좌우 절반 분할",
-    "split_v": "Vertical Split — 상하 절반 분할",
-    "blend": "Alpha Blend — 반투명 오버레이",
-    "pip": "Picture-in-Picture — 메인 + 우하단 서브",
+    "overlap": "Full Overlap — Stack displays on top of each other",
+    "split_h": "Side-by-Side Split — Left/right halves from each display",
+    "split_v": "Vertical Split — Top/bottom halves from each display",
+    "blend": "Alpha Blend — Transparent overlay of all displays",
+    "pip": "Picture-in-Picture — Main display + small sub-displays",
 }
 
 
